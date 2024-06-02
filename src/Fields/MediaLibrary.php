@@ -11,6 +11,7 @@ use MoonShine\Fields\Image;
 use MoonShine\Traits\Fields\FileDeletable;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Spatie\MediaLibrary\MediaCollections\Events\CollectionHasBeenClearedEvent;
 
 class MediaLibrary extends Image
 {
@@ -88,6 +89,8 @@ class MediaLibrary extends Image
                 && !$oldValues->contains('id', $media->getKey())
             ) {
                 $media->delete();
+				unset($item->media);
+                event(new CollectionHasBeenClearedEvent($item, $media->collection_name));
             }
         }
     }
