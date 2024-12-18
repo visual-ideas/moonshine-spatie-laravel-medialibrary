@@ -5,10 +5,11 @@
 
 ## Compatibility
 
-|       MoonShine       | Moonshine Spatie Medialibrary | Currently supported |
-|:---------------------:|:-----------------------------:|:-------------------:|
-| \>= v1.52 and < v2.0  |           <= v1.2.0           |         no          |
-|        >= v2.0        |           >= v2.0.1           |         yes         |
+|      MoonShine       | Moonshine Spatie Medialibrary | Currently supported |
+|:--------------------:|:-----------------------------:|:-------------------:|
+| \>= v1.52 and < v2.0 |           <= v1.2.0           |         no          |
+|       >= v2.0        |           >= v2.0.1           |         yes         |
+|       >= v3.0        |           >= v3.0.0           |         yes         |
 
 
 ## Installation
