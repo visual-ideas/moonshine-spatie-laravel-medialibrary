@@ -2,107 +2,146 @@
 
 namespace VI\MoonShineSpatieMediaLibrary\Fields;
 
+use Closure;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
-use MoonShine\Fields\Image;
+use MoonShine\Contracts\UI\FieldContract;
+use MoonShine\Support\DTOs\FileItem;
+use MoonShine\UI\Fields\Image;
+use MoonShine\UI\Traits\Fields\FileDeletable;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class MediaLibrary extends Image
 {
-    protected bool $isDeleteFiles = false;
 
-    protected array $wasRecentlyCreated = [];
-
-    public function hasManyOrOneSave(array|UploadedFile|null $valueOrValues = null): array|string|null
+    protected function prepareFill(array $raw = [], mixed $casted = null): mixed
     {
-        return $valueOrValues;
+        $value = $casted->getOriginal()->getMedia($this->column);
+
+        if (!$this->isMultiple()) {
+            $value = $value->first();
+        }
+
+        return $value;
     }
 
-    public function afterSave(Model $item): void
+    public function getFullPathValues(): array
     {
-        $this->storeMedia($item);
+        $values = $this->value;
+
+        if (!$values) {
+            return [];
+        }
+
+        return $this->isMultiple()
+            ? $this->value->map(fn($media): string => $media->getFullUrl())->toArray()
+            : [$this->value?->getFullUrl()];
     }
 
-    public function storeMedia(Model $item): void
+    protected function resolveOnApply(): ?Closure
     {
-        $oldValues = request()->collect($this->hiddenOldValuesKey());
-        $requestValue = $this->requestValue();
+        return static fn($item) => $item;
+    }
 
-        if ($requestValue) {
+    protected function resolveAfterApply(mixed $data): mixed
+    {
+        $oldValues = request()->collect($this->getHiddenRemainingValuesKey())->map(
+            fn($model) => Media::make(json_decode($model, true))
+        );
+
+        $requestValue = $this->getRequestValue();
+
+        $recentlyCreated = collect();
+        if ($requestValue !== false) {
             if (!$this->isMultiple()) {
                 $requestValue = [$requestValue];
             }
 
+
             foreach ($requestValue as $file) {
-                $this->addMedia($item, $file);
+                $recentlyCreated->push($this->addMedia($data, $file));
             }
         }
 
-        $this->removeOldMedia($item, $oldValues);
+        $this->removeOldMedia($data, $recentlyCreated, $oldValues);
+
+        $this->orderMedia($recentlyCreated);
+
+        return null;
     }
 
-    private function addMedia(Model $item, UploadedFile $file)
+    protected function resolveAfterDestroy(mixed $data): mixed
     {
-        $media = $item->addMedia($file)
-            ->preservingOriginal()
-            ->toMediaCollection($this->field());
+        $data
+            ->getMedia($this->column)
+            ->each(fn(Media $media) => $media->delete());
 
-        $this->wasRecentlyCreated[$media->getUrl()] = $media->getUrl();
+        return $data;
     }
 
-    private function removeOldMedia(Model $item, Collection $oldValues): void
+    private function removeOldMedia(HasMedia $item, Collection $recentlyCreated, Collection $oldValues): void
     {
-        foreach ($item->getMedia($this->field()) as $media) {
-            if (!isset($this->wasRecentlyCreated[$media->getUrl()]) && !$oldValues->contains($media->getUrl())) {
+        foreach ($item->getMedia($this->column) as $media) {
+            if (
+                !$recentlyCreated->contains('id', $media->getKey())
+                && !$oldValues->contains('id', $media->getKey())
+            ) {
                 $media->delete();
             }
         }
     }
 
-    public function indexViewValue(Model $item, bool $container = true): string
+    private function addMedia(HasMedia $item, UploadedFile $file): Media
     {
-        if ($this->isMultiple()) {
-            return view('moonshine::ui.image', [
-                'values' => $item->getMedia($this->field())
-                    ->map(fn($value) => $value->getUrl())
-                    ->toArray(),
-            ])->render();
-        }
-
-        $url = $item->getFirstMediaUrl($this->field());
-
-        if (empty($url)) {
-            return '';
-        }
-
-        return view('moonshine::ui.image', [
-            'value' => $url,
-        ])->render();
+        return $item->addMedia($file)
+            ->preservingOriginal()
+            ->toMediaCollection($this->column);
     }
 
-    public function formViewValue(Model $item): Collection|string
+    private function orderMedia(Collection $recentlyCreated): void
     {
-        if ($this->isMultiple()) {
-            return $item->getMedia($this->field())
-                ->map(fn($value) => $value->getUrl());
-        }
-
-        return $item->getFirstMediaUrl($this->field());
+        Media::setNewOrder($recentlyCreated->pluck('id')->toArray());
     }
 
-
-    public function path(string $value): string
+    protected function getFiles(): Collection
     {
-        return '';
+        return collect($this->getFullPathValues())
+            ->mapWithKeys(fn (string $path, int $index): array => [
+                $index => new FileItem(
+                    fullPath: $path,
+                    rawValue: data_get($this->toValue(), $index, $this->toValue()),
+                    name: (string) \call_user_func($this->resolveNames(), $path, $index, $this),
+                    attributes: \call_user_func($this->resolveItemAttributes(), $path, $index, $this),
+                ),
+            ]);
     }
 
-    public function getDir(): string
+    public function removeExcludedFiles(): void
     {
-        return '';
+        $values = collect([
+            $this->toValue(withDefault: false)
+        ]);
+
+        $values->diff([$this->getValue()])->each(fn (string $file) => $this->deleteFile($file));
     }
 
-    public function save(Model $item): Model
+    public function getRequestValue(int|string|null $index = null): mixed
     {
+        return $this->prepareRequestValue(
+            $this->getCore()->getRequest()->getFile(
+                $this->getRequestNameDot($index),
+            ) ?? false
+        );
+    }
+
+    public function apply(Closure $default, mixed $data): mixed
+    {
+        $item = parent::apply($default, $data);
+        unset($item->{$this->column});
+
         return $item;
     }
 }

@@ -41,7 +41,7 @@
     ]
   },
   "conflict": {
-    "moonshine/moonshine": "<1.57"
+    "moonshine/moonshine": "<2.0"
   },
   "extra": {
     "laravel": {
@@ -51,6 +51,6 @@
       }
     }
   },
-  "minimum-stability": "dev",
+  "minimum-stability": "stable",
   "prefer-stable": true
 }
